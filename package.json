@@ -1,0 +1,12 @@
+{
+  "name": "latchline",
+  "version": "1.0.0",
+  "private": false,
+  "description": "A Ring-powered handoff desk for shared workshops and maker spaces.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20" }
+}
