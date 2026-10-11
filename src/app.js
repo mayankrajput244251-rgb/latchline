@@ -5,7 +5,22 @@ const initialEvents = [
   { id: 'demo-6', type: 'button_press', title: 'Doorbell pressed', subtype: 'visitor', timestamp: new Date(Date.now() - 11 * 60000).toISOString(), source: 'demo', entrance: 'Main entrance' },
   { id: 'demo-5', type: 'motion', title: 'Vehicle arrived', subtype: 'vehicle', timestamp: new Date(Date.now() - 24 * 60000).toISOString(), source: 'demo', entrance: 'Garage bay' }
 ];
+const sampleHistory = [
+  ['package_detected', 'Package spotted', 'package', 'North loading door', 52],
+  ['motion', 'Visitor detected', 'person', 'Main entrance', 79],
+  ['motion', 'Vehicle arrived', 'vehicle', 'Garage bay', 108],
+  ['package_detected', 'Package spotted', 'package', 'North loading door', 136],
+  ['button_press', 'Doorbell pressed', 'visitor', 'Main entrance', 171],
+  ['motion', 'Visitor detected', 'person', 'Main entrance', 214],
+  ['motion', 'Vehicle arrived', 'vehicle', 'Garage bay', 261],
+  ['package_detected', 'Package spotted', 'package', 'North loading door', 302],
+  ['motion', 'Visitor detected', 'person', 'Main entrance', 337]
+].map(([type, title, subtype, entrance, minutes], index) => ({
+  id: `history-${index}`, type, title, subtype, entrance,
+  timestamp: new Date(Date.now() - minutes * 60000).toISOString(), source: 'demo', done: true
+}));
 let events = [...initialEvents];
+events = [...events, ...sampleHistory].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 let ringDevices = [];
 let connected = false;
 let activeFilter = 'all';
@@ -24,9 +39,12 @@ function relativeTime(timestamp) {
 }
 
 function render() {
+  $('#todayDate').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
   const openEvents = events.filter((event) => !event.done);
   $('#openCount').textContent = String(openEvents.length).padStart(2, '0');
   $('#filterAll').textContent = openEvents.length;
+  $('#arrivalCount').textContent = events.filter((event) => Date.parse(event.timestamp) >= Date.now() - 24 * 60 * 60 * 1000).length;
+  renderChart();
   const filtered = openEvents.filter((event) => {
     const task = eventToTask(event);
     return activeFilter === 'all' || (activeFilter === 'urgent' ? task.urgency !== 'low' : task.owner === 'Unassigned');
@@ -43,6 +61,25 @@ function render() {
   }).join('');
   taskList.querySelectorAll('.assign').forEach((button) => button.addEventListener('click', () => mutateTask(button, false)));
   taskList.querySelectorAll('.resolve').forEach((button) => button.addEventListener('click', () => mutateTask(button, true)));
+}
+
+function renderChart() {
+  const hour = 60 * 60 * 1000;
+  const start = Math.floor(Date.now() / hour) * hour - 5 * hour;
+  const buckets = Array.from({ length: 6 }, (_, index) => {
+    const timestamp = start + index * hour;
+    const items = events.filter((event) => {
+      const time = Date.parse(event.timestamp);
+      return time >= timestamp && time < timestamp + hour;
+    });
+    return {
+      label: new Date(timestamp).toLocaleTimeString('en-US', { hour: 'numeric' }).replace(' ', ''),
+      arrivals: items.filter((event) => !event.type.includes('package')).length,
+      deliveries: items.filter((event) => event.type.includes('package')).length
+    };
+  });
+  const max = Math.max(2, ...buckets.map((item) => item.arrivals + item.deliveries));
+  $('.bars').innerHTML = buckets.map((item) => `<div class="bar-group"><div class="bar olive" style="height:${Math.max(5, item.arrivals / max * 86)}%" title="${item.arrivals} arrivals"></div><div class="bar gold" style="height:${Math.max(5, item.deliveries / max * 86)}%" title="${item.deliveries} deliveries"></div><span>${item.label}</span></div>`).join('');
 }
 
 function escapeHtml(value) {
@@ -101,7 +138,7 @@ async function refreshEvents() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Ring events could not be loaded.');
     const ringEvents = (data.events || []).map((event) => ({ ...event, entrance: entranceFor(event) }));
-    const demo = events.filter((event) => event.source === 'demo' && !event.done);
+    const demo = events.filter((event) => event.source === 'demo');
     events = [...ringEvents, ...demo].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
     render();
   } catch (error) { toast(error.message); }
