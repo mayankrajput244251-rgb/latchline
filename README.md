@@ -2,6 +2,8 @@
 
 **A handoff desk for shared workshops.** Latchline turns Ring entrance activity into follow-ups with an owner, a simple event timeline, and a clean shift closeout.
 
+Released under the MIT License. See [LICENSE](LICENSE).
+
 Alexa+ is a separate project. Latchline is a fresh Ring track concept and codebase.
 
 ## Why it exists
