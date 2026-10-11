@@ -4,6 +4,10 @@
 
 Released under the MIT License. See [LICENSE](LICENSE).
 
+![Latchline workshop cover](assets/latchline-cover.jpg)
+
+![Latchline workshop cover](assets/latchline-cover.png)
+
 Alexa+ is a separate project. Latchline is a fresh Ring track concept and codebase.
 
 ## Why it exists
