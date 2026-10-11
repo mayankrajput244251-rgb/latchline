@@ -72,4 +72,4 @@ npm test
 
 ## Current prototype limits
 
-Tasks and assignments live in browser memory and reset on reload. Ring history is refreshed on demand; persistent storage, real-time signed webhooks, multi-user ownership, and full Ring Appstore OAuth are follow-up work. The dashboard’s activity chart is currently a design illustration, not a chart computed from API history.
+Tasks and assignments live in browser memory and reset on reload. Ring history is refreshed on demand; persistent storage, real-time signed webhooks, multi-user ownership, and full Ring Appstore OAuth are follow-up work. Demo mode starts with a sample arrival history so the live task flow and activity chart can be shown without credentials.
