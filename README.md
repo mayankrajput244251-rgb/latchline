@@ -4,6 +4,8 @@
 
 Released under the MIT License. See [LICENSE](LICENSE).
 
+**Live demo:** [Open Latchline](https://latchline-workshop.mayankrajput244251.chatgpt.site) — click **Run a handoff drill** to try the queue.
+
 ![Latchline workshop cover](assets/latchline-cover.jpg)
 
 
@@ -20,7 +22,7 @@ In a shared workshop, a delivery, an unexpected visitor, or a vehicle can become
 - Ring Playground connection using a short-lived access token.
 - Ring device discovery and 24-hour device event history, normalized into the same task queue.
 - Assign-to-me and mark-handled interactions.
-- Ring tokens stay in server memory, are never written to browser storage or disk, and clear on disconnect or server restart.
+- Ring tokens stay in browser memory, are sent only to this app's API proxy, and are never written to browser storage or disk. Disconnect clears the browser session token.
 - No image or video capture; Latchline uses event metadata only.
 
 ## Run locally
@@ -55,7 +57,9 @@ This lightweight hackathon build uses the Playground’s short-lived token direc
 ```text
 index.html       Operations desk and Ring connection dialog
 styles.css       Responsive dark workshop interface
-server.js        Static server and server-side Ring API proxy
+server.js        Local static server and Ring API proxy
+worker/index.js  Hosted Worker for the demo UI and Ring API proxy
+scripts/build-worker.mjs  Build the hosted Worker artifact
 src/app.js       Demo workflow, Ring connection, and UI rendering
 src/events.js    Ring event normalization and follow-up rules
 test/events.test.js  Focused event rule checks
