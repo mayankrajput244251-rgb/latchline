@@ -3,37 +3,84 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#11110f" />
-  <title>Latchline — Workshop handoffs, in sync</title>
+  <meta name="theme-color" content="#11120f" />
+  <meta name="description" content="Latchline turns workshop arrivals into clear, owned handoffs." />
+  <title>Latchline — Workshop operations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div class="shell">
-    <aside class="rail">
-      <a class="brand" href="#" aria-label="Latchline home"><span class="brand-mark">L</span><span>latchline</span></a>
-      <div class="rail-group"><span class="rail-label">WORKSPACE</span><button class="rail-item active"><span class="rail-icon">◫</span>Operations desk</button><button class="rail-item" data-view="handoffs"><span class="rail-icon">⇄</span>Shift handoffs<span class="rail-count">3</span></button><button class="rail-item" data-view="devices"><span class="rail-icon">⌁</span>Connected devices</button></div>
-      <div class="rail-bottom"><div class="team-card"><div class="team-avatar">FM</div><div><b>Foundry Makers</b><span>Shared workshop</span></div><span class="dots">···</span></div><div class="rail-footer"><span class="online-dot"></span> Local workspace <span class="lock">⌑</span></div></div>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#overview" aria-label="Latchline home"><span class="brand-mark">L</span><span class="brand-name">latchline<span class="brand-period">.</span></span></a>
+      <button class="workspace-switcher" data-action="workspace-menu"><span class="workspace-icon">FM</span><span class="workspace-copy"><b id="workspaceNameShort">Foundry Makers</b><small>Shared workshop</small></span><span class="chevron">⌄</span></button>
+      <div class="nav-label">WORKSPACE</div>
+      <nav class="primary-nav" aria-label="Workspace navigation">
+        <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span><span>Overview</span></button>
+        <button class="nav-item" data-view="handoffs"><span class="nav-icon">↗</span><span>Handoff queue</span><span class="nav-badge" id="navOpenCount">03</span></button>
+        <button class="nav-item" data-view="activity"><span class="nav-icon">⌁</span><span>Event timeline</span></button>
+        <button class="nav-item" data-view="devices"><span class="nav-icon">◉</span><span>Entrances & devices</span><span class="status-dot"></span></button>
+        <button class="nav-item" data-view="team"><span class="nav-icon">♧</span><span>Team & shifts</span></button>
+      </nav>
+      <div class="nav-label nav-label-spaced">WORKFLOWS</div>
+      <nav class="primary-nav" aria-label="Workflow navigation">
+        <button class="nav-item" data-view="automations"><span class="nav-icon">⟲</span><span>Automation rules</span></button>
+        <button class="nav-item" data-view="analytics"><span class="nav-icon">▥</span><span>Insights</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="demo-card"><div class="demo-card-head"><span class="pulse-dot"></span><span>DEMO WORKSPACE</span></div><p>Sample arrivals are labeled. Your changes stay in this browser.</p><button data-action="reset-demo">Reset sample data <span>↻</span></button></div>
+        <button class="nav-item settings-nav" data-view="settings"><span class="nav-icon">⚙</span><span>Settings</span></button>
+        <div class="user-row"><span class="user-avatar">MK</span><span><b>Mayank Kumar</b><small>Workspace admin</small></span><button class="user-menu" aria-label="User menu">···</button></div>
+      </div>
     </aside>
-    <main class="main">
-      <header class="topbar"><div class="crumb">Foundry Makers <span>/</span> Operations desk</div><div class="top-actions"><button class="icon-button" title="Notifications">♧<i></i></button><div class="avatar">MR</div></div></header>
-      <section class="content">
-        <div class="heading-row"><div><div class="eyebrow"><span class="online-dot"></span> <span id="todayDate">TODAY</span> <span class="eyebrow-sep">·</span> DAY SHIFT</div><h1>The workshop, at a glance.</h1><p class="subhead">Turn entrance activity into a clean handoff for the people on the floor.</p></div><button id="addEvent" class="button button-light"><span>＋</span> Run a handoff drill</button></div>
-        <div class="stat-grid">
-          <article class="stat-card"><div class="stat-top"><span>NEEDS AN OWNER</span><span class="stat-glyph amber">↗</span></div><div class="stat-value" id="openCount">03</div><div class="stat-foot"><span class="status-pill amber-pill">2 time-sensitive</span><span>across 3 entrances</span></div></article>
-          <article class="stat-card"><div class="stat-top"><span>ARRIVALS TODAY</span><span class="stat-glyph sage">⇥</span></div><div class="stat-value" id="arrivalCount">12</div><div class="stat-foot"><span class="trend">↑ 4</span><span>from yesterday</span></div></article>
-          <article class="stat-card"><div class="stat-top"><span>LAST HANDOFF</span><span class="stat-glyph violet">⇄</span></div><div class="stat-value small-value">8:42 <small>AM</small></div><div class="stat-foot"><span class="person-chip"><span class="tiny-avatar">JL</span> Jules → Maya</span><span>clean closeout</span></div></article>
-          <article class="stat-card"><div class="stat-top"><span>RING CONNECTION</span><span class="stat-glyph ring-glyph">◉</span></div><div class="stat-value small-value" id="connectionLabel">Demo mode</div><div class="stat-foot"><span class="connection-note"><span class="online-dot"></span><span id="connectionDetail">3 simulated entrances</span></span><button id="connectButton" class="text-button">Connect Ring <span>↗</span></button></div></article>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="breadcrumbs"><span id="breadcrumbWorkspace">Foundry Makers</span><span class="crumb-slash">/</span><b id="breadcrumbView">Overview</b><span class="demo-pill"><i></i> DEMO</span></div>
+        <div class="topbar-actions">
+          <button class="search-trigger" data-action="command"><span class="search-glass">⌕</span><span>Search or jump to…</span><kbd>⌘ K</kbd></button>
+          <button class="top-icon" data-action="shift-summary" title="Shift summary">▤</button>
+          <button class="top-icon notification-button" data-action="notifications" title="Notifications">♧<i></i></button>
+          <span class="user-avatar top-avatar">MK</span>
         </div>
-        <div class="desk-grid">
-          <section class="panel task-panel"><div class="panel-header"><div><div class="panel-kicker">ACTION QUEUE <span class="live-tag"><i></i> LIVE</span></div><h2>Give the next thing an owner.</h2><p>Activity that still needs a human follow-through.</p></div><button class="more-button" aria-label="More options">···</button></div><div class="filters"><button class="filter active" data-filter="all">All <b id="filterAll">3</b></button><button class="filter" data-filter="urgent">Time-sensitive <b>2</b></button><button class="filter" data-filter="unassigned">Unassigned <b>1</b></button><div class="filter-spacer"></div><button class="sort-button">Newest first⌄</button></div><div id="taskList" class="task-list"></div><button class="queue-footer" id="showAll">View handoff history <span>→</span></button></section>
-          <section class="panel activity-panel"><div class="panel-header"><div><div class="panel-kicker">ENTRANCE PULSE <span class="date-range">PAST 6 HOURS</span></div><h2>One quiet view of the door.</h2><p>Activity grouped by entrance, not buried in pings.</p></div><button class="more-button" aria-label="Activity options">···</button></div><div class="pulse-chart"><div class="chart-y"><span>8</span><span>6</span><span>4</span><span>2</span><span>0</span></div><div class="chart-area"><div class="grid-lines"><i></i><i></i><i></i><i></i><i></i></div><div class="bars"><div class="bar-group"><div class="bar olive" style="height:25%"></div><div class="bar gold" style="height:15%"></div><span>8 AM</span></div><div class="bar-group"><div class="bar olive" style="height:52%"></div><div class="bar gold" style="height:25%"></div><span>9 AM</span></div><div class="bar-group"><div class="bar olive" style="height:32%"></div><div class="bar gold" style="height:15%"></div><span>10 AM</span></div><div class="bar-group"><div class="bar olive" style="height:68%"></div><div class="bar gold" style="height:27%"></div><span>11 AM</span></div><div class="bar-group"><div class="bar olive" style="height:43%"></div><div class="bar gold" style="height:18%"></div><span>12 PM</span></div><div class="bar-group"><div class="bar olive" style="height:85%"></div><div class="bar gold" style="height:40%"></div><span>1 PM</span></div></div></div><div class="chart-legend"><span><i class="legend-dot olive-dot"></i>People & vehicles</span><span><i class="legend-dot gold-dot"></i>Deliveries</span><span class="pulse-total"><b>12</b> total arrivals</span></div></div><div class="entrance-head"><span>ENTRANCE ACTIVITY</span><button id="refreshEvents" class="text-button">Refresh ↻</button></div><div id="activityList" class="activity-list"></div><div class="privacy-note"><span>◌</span><span><b>Privacy by design</b> — Latchline organizes event metadata. It doesn’t identify people or store video.</span></div></section>
-        </div>
-        <footer class="footnote"><span>Built for the moments between shifts.</span><span>Latchline <b>·</b> Ring-ready workshop operations</span></footer>
-      </section>
+      </header>
+
+      <div class="page-wrap">
+        <div id="pageHeading" class="page-heading"></div>
+        <section id="viewContent" aria-live="polite"></section>
+      </div>
     </main>
   </div>
-  <dialog id="connectDialog"><form method="dialog" class="dialog-card"><button class="close-dialog" value="cancel" aria-label="Close">×</button><div class="dialog-symbol">◉</div><div class="panel-kicker">RING DEVELOPER PLAYGROUND</div><h2>Bring in the real door.</h2><p>Paste a short-lived Playground token. It stays in this local server’s memory and is cleared when you disconnect or restart.</p><label for="tokenInput">ACCESS TOKEN</label><input id="tokenInput" type="password" autocomplete="off" placeholder="Paste Ring token" /><div id="connectError" class="error-line"></div><div class="dialog-actions"><a href="https://developer.amazon.com/ring" target="_blank" rel="noreferrer">Open Playground ↗</a><button id="submitToken" type="button" class="button button-accent">Connect workspace</button></div><small>Tokens expire. Reconnect from the Playground when needed.</small></form></dialog>
-  <div id="toast" class="toast" role="status"></div>
+
+  <dialog class="modal" id="taskDialog">
+    <form method="dialog" id="taskForm">
+      <div class="modal-head"><div><span class="eyebrow">WORKSHOP FOLLOW-UP</span><h2>Create handoff item</h2><p>Give the next arrival a clear owner and next step.</p></div><button class="modal-close" value="cancel" aria-label="Close">×</button></div>
+      <label>What needs doing?<input name="title" required maxlength="100" placeholder="e.g. Confirm the steel delivery" /></label>
+      <div class="form-grid"><label>Category<select name="category"><option value="package">Delivery</option><option value="visitor">Visitor</option><option value="vehicle">Vehicle</option><option value="maintenance">Equipment / maintenance</option><option value="other">Other</option></select></label><label>Priority<select name="priority"><option value="medium">Follow up</option><option value="high">Time sensitive</option><option value="low">Log only</option></select></label></div>
+      <div class="form-grid"><label>Entrance<input name="entrance" maxlength="60" placeholder="Main entrance" /></label><label>Assign to<select name="owner"><option value="Unassigned">Unassigned</option><option value="You">Me</option><option value="Jules">Jules</option><option value="Maya">Maya</option><option value="Floor lead">Floor lead</option></select></label></div>
+      <label>Notes <span class="optional">OPTIONAL</span><textarea name="notes" rows="3" maxlength="240" placeholder="Anything the next shift should know…"></textarea></label>
+      <div class="modal-actions"><button class="button button-quiet" value="cancel">Cancel</button><button class="button button-primary" value="default" type="submit">Add to queue <span>↗</span></button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal ring-modal" id="ringDialog">
+    <form method="dialog" id="ringForm">
+      <div class="modal-head"><div><span class="eyebrow">RING PLAYGROUND</span><h2>Connect an entrance</h2><p>Use a temporary token from the Ring Developer Playground. The token stays in this tab’s memory.</p></div><button class="modal-close" value="cancel" aria-label="Close">×</button></div>
+      <label>Temporary access token<input name="token" type="password" autocomplete="off" required placeholder="Paste Playground token" /></label>
+      <p class="form-error" id="ringError"></p>
+      <div class="modal-actions"><a class="text-link" href="https://developer.amazon.com/ring" target="_blank" rel="noreferrer">Open Ring Playground ↗</a><button class="button button-primary" value="default" type="submit">Connect workspace</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal command-modal" id="commandDialog">
+    <div class="command-search"><span>⌕</span><input id="commandInput" autocomplete="off" placeholder="Search pages, actions, and handoffs…" /><kbd>ESC</kbd></div>
+    <div class="command-list" id="commandList"></div>
+    <div class="command-foot"><span>↑↓ Navigate</span><span>↵ Open</span><span>ESC Close</span></div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script type="module" src="/src/app.js"></script>
 </body>
 </html>
