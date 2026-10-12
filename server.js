@@ -6,7 +6,6 @@ import { normalizeRingEvent } from './src/events.js';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const port = Number(process.env.PORT || 4173);
-let ringToken = '';
 
 const json = (res, status, payload) => {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -19,10 +18,10 @@ async function body(req) {
   return raw ? JSON.parse(raw) : {};
 }
 
-async function ring(path) {
-  if (!ringToken) throw new Error('Add a short-lived Ring Playground token first.');
+async function ring(path, token) {
+  if (!token) throw new Error('Add a short-lived Ring Playground token first.');
   const response = await fetch(`https://api.amazonvision.com${path}`, {
-    headers: { authorization: `Bearer ${ringToken}`, accept: 'application/vnd.api+json, application/json' }
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.api+json, application/json' }
   });
   if (!response.ok) throw new Error(`Ring API returned ${response.status}. Check that the Playground token is still active.`);
   return response.json();
@@ -35,8 +34,9 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'POST' && url.pathname === '/api/ring/connect') {
         const { token } = await body(req);
         if (typeof token !== 'string' || token.trim().length < 12) return json(res, 400, { error: 'Paste a valid Ring Playground token.' });
-        ringToken = token.trim();
-        const data = await ring('/v1/devices?include=status,capabilities');
+        const cleanToken = token.trim();
+        if (req.headers.authorization !== `Bearer ${cleanToken}`) return json(res, 400, { error: 'Ring token header did not match.' });
+        const data = await ring('/v1/devices?include=status,capabilities', cleanToken);
         return json(res, 200, { connected: true, devices: (data?.data || []).map((item) => ({
           id: item.id,
           name: item.attributes?.name || item.attributes?.description || item.id,
@@ -44,14 +44,15 @@ const server = http.createServer(async (req, res) => {
         })) });
       }
       if (req.method === 'POST' && url.pathname === '/api/ring/disconnect') {
-        ringToken = '';
         return json(res, 200, { connected: false });
       }
       if (req.method === 'GET' && url.pathname === '/api/ring/events') {
+        const token = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : '';
+        if (!token) return json(res, 401, { error: 'Reconnect your Ring Playground session.' });
         const deviceIds = (url.searchParams.get('devices') || '').split(',').filter(Boolean).slice(0, 12);
         const since = Number(url.searchParams.get('since') || Date.now() - 24 * 60 * 60 * 1000);
         const results = await Promise.all(deviceIds.map(async (id) => {
-          const data = await ring(`/v1/history/devices/${encodeURIComponent(id)}/events`);
+          const data = await ring(`/v1/history/devices/${encodeURIComponent(id)}/events`, token);
           return (data?.data || []).map((event) => normalizeRingEvent(event, id)).filter((event) => Date.parse(event.timestamp) >= since);
         }));
         return json(res, 200, { events: results.flat().sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)).slice(0, 100) });
