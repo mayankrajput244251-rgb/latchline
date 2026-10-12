@@ -23,6 +23,7 @@ let events = [...initialEvents];
 events = [...events, ...sampleHistory].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 let ringDevices = [];
 let connected = false;
+let ringToken = '';
 let activeFilter = 'all';
 let nextId = 8;
 
@@ -116,9 +117,11 @@ function addDrillEvent() {
 }
 
 async function connectRing(token) {
-  const response = await fetch('/api/ring/connect', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) });
+  const cleanToken = token.trim();
+  const response = await fetch('/api/ring/connect', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${cleanToken}` }, body: JSON.stringify({ token: cleanToken }) });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Could not connect to Ring.');
+  ringToken = cleanToken;
   ringDevices = data.devices || [];
   connected = true;
   $('#connectionLabel').textContent = 'Ring connected';
@@ -134,7 +137,7 @@ async function refreshEvents() {
   if (!connected || !ringDevices.length) return;
   try {
     const ids = ringDevices.map((device) => device.id).join(',');
-    const response = await fetch(`/api/ring/events?devices=${encodeURIComponent(ids)}&since=${Date.now() - 24 * 60 * 60 * 1000}`);
+    const response = await fetch(`/api/ring/events?devices=${encodeURIComponent(ids)}&since=${Date.now() - 24 * 60 * 60 * 1000}`, { headers: { authorization: `Bearer ${ringToken}` } });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Ring events could not be loaded.');
     const ringEvents = (data.events || []).map((event) => ({ ...event, entrance: entranceFor(event) }));
@@ -155,6 +158,7 @@ document.querySelectorAll('.filter').forEach((button) => button.addEventListener
 $('#connectButton').addEventListener('click', async () => {
   if (connected) {
     await fetch('/api/ring/disconnect', { method: 'POST' });
+    ringToken = '';
     connected = false;
     ringDevices = [];
     events = events.filter((event) => event.source !== 'ring');
@@ -162,7 +166,7 @@ $('#connectButton').addEventListener('click', async () => {
     $('#connectionDetail').textContent = '3 simulated entrances';
     $('#connectButton').innerHTML = 'Connect Ring <span>↗</span>';
     render();
-    toast('Ring token cleared from this server.');
+    toast('Ring token cleared from this session.');
   } else $('#connectDialog').showModal();
 });
 $('#submitToken').addEventListener('click', async () => {
