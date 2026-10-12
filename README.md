@@ -4,7 +4,7 @@
 
 Released under the MIT License. See [LICENSE](LICENSE).
 
-**Live demo:** [Open Latchline](https://latchline-workshop.mayankrajput244251.chatgpt.site) — click **Run a handoff drill** to try the queue.
+**Live demo:** [Open Latchline](https://latchline-workshop.mayankrajput244251.chatgpt.site) — explore the dashboard and use **Simulate arrival** to try the workflow.
 
 ![Latchline workshop cover](assets/latchline-cover.jpg)
 
@@ -17,12 +17,13 @@ In a shared workshop, a delivery, an unexpected visitor, or a vehicle can become
 
 ## What works in this build
 
-- Responsive operations desk with an action queue, entrance activity, and workshop handoff context.
-- Demo mode with sample parcel, visitor, and vehicle events. **Run a handoff drill** adds realistic sample events so the core workflow is demoable without hardware.
-- Ring Playground connection using a short-lived access token.
-- Ring device discovery and 24-hour device event history, normalized into the same task queue.
-- Assign-to-me and mark-handled interactions.
-- Ring tokens stay in browser memory, are sent only to this app's API proxy, and are never written to browser storage or disk. Disconnect clears the browser session token.
+- Eight connected workspace areas: overview, handoff queue, event timeline, entrances and devices, team and shifts, automation rules, insights, and settings.
+- Searchable and filterable queue with priority, assignment, resolve, snooze, sort, and CSV export actions.
+- Create custom handoffs, simulate arrivals, browse event history, and copy a shift closeout summary.
+- Shift controls, team assignment, entrance health cards, configurable local automation rules, and analytics derived from the demo event set.
+- Responsive layout, keyboard command palette (`Ctrl/Cmd+K`), and browser-local persistence for demo state.
+- Clearly labeled simulated demo data. Ring Playground connection can load available devices and recent event history.
+- Temporary Ring tokens stay in tab memory and are sent only to this app's API proxy; they are never written to browser storage or disk.
 - No image or video capture; Latchline uses event metadata only.
 
 ## Run locally
@@ -47,7 +48,7 @@ This lightweight hackathon build uses the Playground’s short-lived token direc
 ## Demo walkthrough
 
 1. Start in demo mode and point out the open handoff items.
-2. Click **Run a handoff drill** to add another entrance event.
+2. Click **Simulate arrival** to add a delivery, visitor, or vehicle event.
 3. Assign the item to yourself, then mark it handled; show the queue count update.
 4. Connect a Ring Playground token and show actual device history arriving in the same queue. Trigger a package, vehicle, or motion simulation and refresh.
 5. Close with the privacy note: the prototype processes event metadata, not identifying or storing video.
@@ -58,10 +59,10 @@ This lightweight hackathon build uses the Playground’s short-lived token direc
 index.html       Operations desk and Ring connection dialog
 styles.css       Responsive dark workshop interface
 server.js        Local static server and Ring API proxy
-worker/index.js  Hosted Worker for the demo UI and Ring API proxy
-scripts/build-worker.mjs  Build the hosted Worker artifact
 src/app.js       Demo workflow, Ring connection, and UI rendering
 src/events.js    Ring event normalization and follow-up rules
+worker/index.js  Hosted Worker for the demo UI and Ring API proxy
+scripts/build-worker.mjs  Build the hosted Worker artifact
 test/events.test.js  Focused event rule checks
 ```
 
@@ -81,4 +82,4 @@ npm test
 
 ## Current prototype limits
 
-Tasks and assignments live in browser memory and reset on reload. Ring history is refreshed on demand; persistent storage, real-time signed webhooks, multi-user ownership, and full Ring Appstore OAuth are follow-up work. Demo mode starts with a sample arrival history so the live task flow and activity chart can be shown without credentials.
+Demo tasks, rules, workspace preferences, and assignments persist in browser storage until reset. Ring history is refreshed on demand; persistent storage, real-time signed webhooks, multi-user ownership, and full Ring Appstore OAuth are follow-up work. Demo mode starts with a sample arrival history so the live task flow and activity chart can be shown without credentials.
