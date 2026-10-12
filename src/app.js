@@ -1,183 +1,86 @@
 import { eventToTask } from './events.js';
 
-const initialEvents = [
-  { id: 'demo-7', type: 'package_detected', title: 'Package spotted', subtype: 'package', timestamp: new Date(Date.now() - 3 * 60000).toISOString(), source: 'demo', entrance: 'North loading door' },
-  { id: 'demo-6', type: 'button_press', title: 'Doorbell pressed', subtype: 'visitor', timestamp: new Date(Date.now() - 11 * 60000).toISOString(), source: 'demo', entrance: 'Main entrance' },
-  { id: 'demo-5', type: 'motion', title: 'Vehicle arrived', subtype: 'vehicle', timestamp: new Date(Date.now() - 24 * 60000).toISOString(), source: 'demo', entrance: 'Garage bay' }
+const STORE = 'latchline-demo-v2';
+const now = Date.now();
+const demoEvents = [
+  ['package_detected','Steel delivery at loading door','package','North loading door',3,'high','Jules','Supplier left two pallets; verify count.'],
+  ['button_press','Visitor waiting at main entrance','visitor','Main entrance',11,'medium','Unassigned','Guest says they are here for the ceramics studio.'],
+  ['motion','Van at garage bay','vehicle','Garage bay',24,'medium','Maya','Check the bay before opening the side gate.'],
+  ['motion','Member entered the workshop','person','Main entrance',38,'low','You','Member access confirmed.'],
+  ['package_detected','Parcel received for the print room','package','North loading door',61,'low','Floor lead','Small parcel on the marked shelf.'],
+  ['offline','Side entrance camera briefly offline','offline','Side entrance',85,'high','Unassigned','Check power and Wi-Fi if it drops again.'],
+  ['motion','Courier vehicle departed','vehicle','Garage bay',109,'low','Maya','Delivery vehicle cleared the bay.'],
+  ['button_press','Doorbell pressed during shift change','visitor','Main entrance',133,'medium','Jules','Passed to the incoming host.'],
+  ['package_detected','Box delivered to north entrance','package','North loading door',166,'medium','Unassigned','Label is facing the wall; identify recipient.'],
+  ['motion','Workshop member arrived','person','Side entrance',194,'low','You','Entry logged for the afternoon shift.'],
+  ['motion','Visitor detected near garage','person','Garage bay',229,'medium','Floor lead','Confirm visitor is at the right entrance.'],
+  ['package_detected','Materials drop confirmed','package','North loading door',275,'low','Maya','Materials moved to the dry storage area.'],
+  ['button_press','Front doorbell pressed','visitor','Main entrance',318,'medium','Unassigned','No note added by the previous shift.'],
+  ['motion','Vehicle arrived for pickup','vehicle','Garage bay',362,'low','Jules','Pickup completed; bay clear.']
+].map(([type,title,subtype,entrance,minutes,priority,owner,notes],i)=>({id:`demo-${i+1}`,type,title,subtype,entrance,priority,owner,notes,timestamp:new Date(now-minutes*60000).toISOString(),source:'demo',done:i>8}));
+const defaultRules = [
+  {id:'r1',name:'Flag unclaimed deliveries',detail:'Create a high priority handoff when a delivery has no owner after 10 minutes.',when:'Package detected · unassigned · 10 min',then:'Create urgent handoff',on:true},
+  {id:'r2',name:'Route visitors to the floor lead',detail:'Assign doorbell and visitor arrivals to the floor lead during open hours.',when:'Visitor or doorbell · 08:00–18:00',then:'Assign to Floor lead',on:true},
+  {id:'r3',name:'Watch entrance outages',detail:'Raise a maintenance handoff when an entrance reports offline.',when:'Device offline · any entrance',then:'Create maintenance task',on:true},
+  {id:'r4',name:'Quiet hours digest',detail:'Group low priority motion events into one morning review.',when:'Low priority · 20:00–07:00',then:'Add to daily digest',on:false}
 ];
-const sampleHistory = [
-  ['package_detected', 'Package spotted', 'package', 'North loading door', 52],
-  ['motion', 'Visitor detected', 'person', 'Main entrance', 79],
-  ['motion', 'Vehicle arrived', 'vehicle', 'Garage bay', 108],
-  ['package_detected', 'Package spotted', 'package', 'North loading door', 136],
-  ['button_press', 'Doorbell pressed', 'visitor', 'Main entrance', 171],
-  ['motion', 'Visitor detected', 'person', 'Main entrance', 214],
-  ['motion', 'Vehicle arrived', 'vehicle', 'Garage bay', 261],
-  ['package_detected', 'Package spotted', 'package', 'North loading door', 302],
-  ['motion', 'Visitor detected', 'person', 'Main entrance', 337]
-].map(([type, title, subtype, entrance, minutes], index) => ({
-  id: `history-${index}`, type, title, subtype, entrance,
-  timestamp: new Date(Date.now() - minutes * 60000).toISOString(), source: 'demo', done: true
-}));
-let events = [...initialEvents];
-events = [...events, ...sampleHistory].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
-let ringDevices = [];
-let connected = false;
-let ringToken = '';
-let activeFilter = 'all';
-let nextId = 8;
-
-const $ = (selector) => document.querySelector(selector);
-const taskList = $('#taskList');
-const activityList = $('#activityList');
-const toastEl = $('#toast');
-const iconFor = (type) => type.includes('package') ? ['▣', 'package'] : type.includes('ding') || type.includes('button') ? ['↗', 'door'] : type.includes('vehicle') ? ['▰', 'vehicle'] : type.includes('offline') ? ['⌁', 'offline'] : ['⌖', 'motion'];
-const entranceFor = (event) => event.entrance || ringDevices.find((device) => device.id === event.deviceId)?.name || 'Workshop entrance';
-
-function relativeTime(timestamp) {
-  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(timestamp)) / 60000));
-  return minutes < 1 ? 'just now' : `${minutes}m ago`;
-}
-
-function render() {
-  $('#todayDate').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
-  const openEvents = events.filter((event) => !event.done);
-  $('#openCount').textContent = String(openEvents.length).padStart(2, '0');
-  $('#filterAll').textContent = openEvents.length;
-  $('#arrivalCount').textContent = events.filter((event) => Date.parse(event.timestamp) >= Date.now() - 24 * 60 * 60 * 1000).length;
-  renderChart();
-  const filtered = openEvents.filter((event) => {
-    const task = eventToTask(event);
-    return activeFilter === 'all' || (activeFilter === 'urgent' ? task.urgency !== 'low' : task.owner === 'Unassigned');
-  });
-  taskList.innerHTML = filtered.length ? filtered.map((event) => {
-    const task = eventToTask(event);
-    const [icon, iconClass] = iconFor(event.type);
-    return `<article class="task-row" data-id="${escapeHtml(event.id)}"><div class="task-icon ${iconClass}">${icon}</div><div class="task-main"><h3>${escapeHtml(task.title)}</h3><p>${escapeHtml(task.detail)}</p><div class="task-meta"><span class="task-age">${relativeTime(event.timestamp)}</span><span class="owner-chip">${escapeHtml(event.owner)}</span></div><div class="task-tools"><button class="assign">Assign to me</button><button class="resolve">✓ Mark handled</button></div></div><span class="task-badge ${task.urgency}">${task.urgency === 'high' ? 'CHECK NOW' : task.urgency === 'medium' ? 'FOLLOW UP' : 'LOG'}</span></article>`;
-  }).join('') : '<div class="empty-state"><span>✓</span>All caught up. The next handoff is in good shape.</div>';
-
-  activityList.innerHTML = events.slice(0, 3).map((event) => {
-    const [icon] = iconFor(event.type);
-    return `<div class="activity-row"><div class="activity-marker">${icon}</div><div class="activity-copy"><b>${escapeHtml(event.title)}</b><span>${escapeHtml(entranceFor(event))}</span></div><span class="activity-time">${relativeTime(event.timestamp)}</span></div>`;
-  }).join('');
-  taskList.querySelectorAll('.assign').forEach((button) => button.addEventListener('click', () => mutateTask(button, false)));
-  taskList.querySelectorAll('.resolve').forEach((button) => button.addEventListener('click', () => mutateTask(button, true)));
-}
-
-function renderChart() {
-  const hour = 60 * 60 * 1000;
-  const start = Math.floor(Date.now() / hour) * hour - 5 * hour;
-  const buckets = Array.from({ length: 6 }, (_, index) => {
-    const timestamp = start + index * hour;
-    const items = events.filter((event) => {
-      const time = Date.parse(event.timestamp);
-      return time >= timestamp && time < timestamp + hour;
-    });
-    return {
-      label: new Date(timestamp).toLocaleTimeString('en-US', { hour: 'numeric' }).replace(' ', ''),
-      arrivals: items.filter((event) => !event.type.includes('package')).length,
-      deliveries: items.filter((event) => event.type.includes('package')).length
-    };
-  });
-  const max = Math.max(2, ...buckets.map((item) => item.arrivals + item.deliveries));
-  $('.bars').innerHTML = buckets.map((item) => `<div class="bar-group"><div class="bar olive" style="height:${Math.max(5, item.arrivals / max * 86)}%" title="${item.arrivals} arrivals"></div><div class="bar gold" style="height:${Math.max(5, item.deliveries / max * 86)}%" title="${item.deliveries} deliveries"></div><span>${item.label}</span></div>`).join('');
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-}
-
-function mutateTask(button, done) {
-  const id = button.closest('.task-row').dataset.id;
-  const event = events.find((item) => item.id === id);
-  if (!event) return;
-  if (done) event.done = true;
-  else event.assigned = true;
-  if (event.assigned) event.owner = 'You';
-  render();
-  toast(done ? 'Handoff updated. Marked as handled.' : 'This follow-up is assigned to you.');
-}
-
-function toast(message) {
-  toastEl.textContent = message;
-  toastEl.classList.add('show');
-  setTimeout(() => toastEl.classList.remove('show'), 2400);
-}
-
-function addDrillEvent() {
-  const drill = [
-    { type: 'package_detected', title: 'Package spotted', subtype: 'package', entrance: 'North loading door' },
-    { type: 'button_press', title: 'Doorbell pressed', subtype: 'visitor', entrance: 'Main entrance' },
-    { type: 'motion', title: 'Vehicle arrived', subtype: 'vehicle', entrance: 'Garage bay' }
-  ][Math.floor(Math.random() * 3)];
-  const event = { ...drill, id: `drill-${nextId++}`, timestamp: new Date().toISOString(), source: 'demo' };
-  events.unshift(event);
-  render();
-  toast('Drill event added to the handoff queue.');
-}
-
-async function connectRing(token) {
-  const cleanToken = token.trim();
-  const response = await fetch('/api/ring/connect', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${cleanToken}` }, body: JSON.stringify({ token: cleanToken }) });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Could not connect to Ring.');
-  ringToken = cleanToken;
-  ringDevices = data.devices || [];
-  connected = true;
-  $('#connectionLabel').textContent = 'Ring connected';
-  $('#connectionDetail').textContent = `${ringDevices.length} connected entrance${ringDevices.length === 1 ? '' : 's'}`;
-  $('#connectButton').textContent = 'Disconnect ↗';
-  $('#connectDialog').close();
-  $('#tokenInput').value = '';
-  await refreshEvents();
-  toast('Ring devices connected. Event history is syncing.');
-}
-
-async function refreshEvents() {
-  if (!connected || !ringDevices.length) return;
-  try {
-    const ids = ringDevices.map((device) => device.id).join(',');
-    const response = await fetch(`/api/ring/events?devices=${encodeURIComponent(ids)}&since=${Date.now() - 24 * 60 * 60 * 1000}`, { headers: { authorization: `Bearer ${ringToken}` } });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Ring events could not be loaded.');
-    const ringEvents = (data.events || []).map((event) => ({ ...event, entrance: entranceFor(event) }));
-    const demo = events.filter((event) => event.source === 'demo');
-    events = [...ringEvents, ...demo].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
-    render();
-  } catch (error) { toast(error.message); }
-}
-
-$('#addEvent').addEventListener('click', addDrillEvent);
-$('#refreshEvents').addEventListener('click', refreshEvents);
-$('#showAll').addEventListener('click', () => toast('Handoff history is ready for the next build step.'));
-document.querySelectorAll('.filter').forEach((button) => button.addEventListener('click', () => {
-  activeFilter = button.dataset.filter;
-  document.querySelectorAll('.filter').forEach((filter) => filter.classList.toggle('active', filter === button));
-  render();
-}));
-$('#connectButton').addEventListener('click', async () => {
-  if (connected) {
-    await fetch('/api/ring/disconnect', { method: 'POST' });
-    ringToken = '';
-    connected = false;
-    ringDevices = [];
-    events = events.filter((event) => event.source !== 'ring');
-    $('#connectionLabel').textContent = 'Demo mode';
-    $('#connectionDetail').textContent = '3 simulated entrances';
-    $('#connectButton').innerHTML = 'Connect Ring <span>↗</span>';
-    render();
-    toast('Ring token cleared from this session.');
-  } else $('#connectDialog').showModal();
+const initial = (()=>{try{return JSON.parse(localStorage.getItem(STORE)||'null')}catch{return null}})();
+let state = initial || {events:demoEvents,rules:defaultRules,workspace:'Foundry Makers',settings:{quietHours:true,autoAssign:false,compact:false},shiftOpen:true};
+let events = state.events || demoEvents;
+let rules = state.rules || defaultRules;
+let workspace = state.workspace || 'Foundry Makers';
+let settings = state.settings || {quietHours:true,autoAssign:false,compact:false};
+let shiftOpen = state.shiftOpen !== false;
+let currentView='overview', queueFilter='all', search='', timelineRange='24h', sortBy='newest';
+let ringDevices=[], ringToken='', connected=false;
+const $=(s,root=document)=>root.querySelector(s), $$=(s,root=document)=>[...root.querySelectorAll(s)];
+const labels={overview:'Overview',handoffs:'Handoff queue',activity:'Event timeline',devices:'Entrances & devices',team:'Team & shifts',automations:'Automation rules',analytics:'Insights',settings:'Settings'};
+const people=[{name:'Mayank Kumar',role:'Workspace admin',initials:'MK',color:'gold'},{name:'Jules Rivera',role:'Incoming host',initials:'JR',color:'olive'},{name:'Maya Chen',role:'Floor lead',initials:'MC',color:'rose'},{name:'Sam Patel',role:'Workshop member',initials:'SP',color:'blue'}];
+const entrances=[{name:'Main entrance',kind:'Front door',device:'Video Doorbell',state:'Online',battery:82},{name:'North loading door',kind:'Delivery entrance',device:'Stick Up Cam',state:'Online',battery:67},{name:'Garage bay',kind:'Vehicle access',device:'Indoor Cam',state:'Online',battery:91},{name:'Side entrance',kind:'Member entrance',device:'Stick Up Cam',state:'Needs check',battery:18}];
+function persist(){localStorage.setItem(STORE,JSON.stringify({events,rules,workspace,settings,shiftOpen}));}
+function esc(v=''){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function ago(ts){let m=Math.max(0,Math.floor((Date.now()-Date.parse(ts))/60000));return m<1?'just now':m<60?`${m}m ago`:`${Math.floor(m/60)}h ago`;}
+function stamp(ts){return new Date(ts).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}
+function isOpen(e){return !e.done && !e.snoozed;}
+function icon(e){return e.type.includes('package')?'▣':e.type.includes('button')?'↗':e.type.includes('offline')?'⌁':e.type.includes('vehicle')?'▰':'⌖';}
+function category(e){return e.subtype==='package'?'Delivery':e.subtype==='visitor'?'Visitor':e.subtype==='vehicle'?'Vehicle':e.subtype==='offline'?'Device alert':e.subtype==='maintenance'?'Maintenance':'Arrival';}
+function urgency(e){return e.priority||eventToTask(e).urgency||'medium';}
+function avatar(name){const p=people.find(x=>name?.includes(x.name.split(' ')[0]));return `<span class="mini-avatar ${p?.color||'gold'}">${p?.initials||'—'}</span>`;}
+function heading(title,desc,actions=''){return `<div class="heading-copy"><span class="eyebrow">${esc(workspace)} / WORKSHOP OPS</span><h1>${title}</h1><p>${desc}</p></div><div class="heading-actions">${actions}</div>`;}
+function button(label,action,kind='button-primary',extra=''){return `<button class="button ${kind}" data-action="${action}" ${extra}>${label}</button>`;}
+function eventRow(e,tools=true){return `<article class="handoff-row" data-id="${esc(e.id)}"><div class="event-glyph ${esc(e.subtype||'arrival')}">${icon(e)}</div><div class="handoff-body"><div class="row-top"><h3>${esc(e.title)}</h3><span class="priority-tag ${urgency(e)}">${esc(urgency(e))}</span></div><p>${esc(e.entrance||'Workshop entrance')} <span>·</span> ${esc(category(e))} <span>·</span> ${ago(e.timestamp)}</p>${e.notes?`<small>${esc(e.notes)}</small>`:''}<div class="row-bottom"><span class="owner-line">${avatar(e.owner)} ${esc(e.owner||'Unassigned')}</span><span class="source-tag">${e.source==='ring'?'RING':'DEMO'}</span></div></div>${tools?`<div class="row-tools"><button data-action="assign" data-id="${esc(e.id)}" title="Assign to me">Assign</button><button data-action="resolve" data-id="${esc(e.id)}" title="Mark handled">✓ Done</button><button data-action="snooze" data-id="${esc(e.id)}" title="Snooze for one hour">◷</button></div>`:''}</article>`;}
+function card(title,sub,content,action=''){return `<section class="panel"><div class="panel-head"><div><h2>${title}</h2><p>${sub}</p></div>${action}</div>${content}</section>`;}
+function metric(label,value,delta,iconText,trend='up'){return `<article class="metric-card"><div class="metric-top"><span>${label}</span><i>${iconText}</i></div><strong>${value}</strong><small class="trend ${trend}">${delta}</small></article>`;}
+function chart(eventsForChart=events){let buckets=Array.from({length:8},(_,i)=>({label:new Date(Date.now()-(7-i)*3*3600000).toLocaleTimeString([],{hour:'numeric'}),all:0,packages:0}));const start=Date.now()-24*3600000;eventsForChart.filter(e=>Date.parse(e.timestamp)>=start).forEach(e=>{let n=Math.min(7,Math.floor((Date.parse(e.timestamp)-start)/(3*3600000)));if(buckets[n]){buckets[n].all++;if(e.subtype==='package')buckets[n].packages++;}});let max=Math.max(3,...buckets.map(x=>x.all));return `<div class="chart-legend"><span><i class="legend-olive"></i> Arrivals</span><span><i class="legend-gold"></i> Deliveries</span></div><div class="chart-bars">${buckets.map(b=>`<div class="chart-col"><div class="chart-stack"><i class="chart-bar olive" style="height:${Math.max(3,(b.all-b.packages)/max*100)}%"></i><i class="chart-bar gold" style="height:${Math.max(3,b.packages/max*100)}%"></i></div><small>${b.label}</small></div>`).join('')}</div>`;}
+function renderOverview(){let open=events.filter(isOpen);let arrivals=events.filter(e=>Date.now()-Date.parse(e.timestamp)<86400000);let resolved=events.filter(e=>e.done&&Date.now()-Date.parse(e.timestamp)<86400000).length;let urgent=open.filter(e=>urgency(e)==='high').length;return `${heading('Workshop overview','A shared handoff desk for every arrival, entrance, and shift.',`${button('＋ Add handoff','new-task')} ${button('＋ Simulate arrival','simulate','button-quiet')}`)}
+<div class="welcome-strip"><div><span class="eyebrow">${new Date().toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'}).toUpperCase()} · ${shiftOpen?'DAY SHIFT ACTIVE':'SHIFT CLOSED'}</span><h2>${open.length?`${open.length} item${open.length===1?'':'s'} need a handoff.`:'The workshop is caught up.'}</h2><p>${urgent?`${urgent} time-sensitive item${urgent===1?'':'s'} should be checked first.`:'Keep arrivals moving with a clear next owner.'}</p></div><div class="welcome-stamp">${avatar('Mayank Kumar')}<span>On shift<b>Mayank Kumar</b></span></div></div>
+<div class="metric-grid">${metric('Open handoffs',String(open.length).padStart(2,'0'),urgent?`${urgent} time sensitive`:'Queue is clear','↗',urgent?'down':'up')}${metric('Arrivals today',arrivals.length,`${events.filter(e=>e.subtype==='package').length} deliveries logged`,'⌖')}${metric('Resolved today',resolved,'Across current shifts','✓')}${metric('Entrance health',connected?`${ringDevices.length}/${ringDevices.length}`:'3/4','1 device needs a check','◉','down')}</div>
+<div class="content-grid">${card('Arrival activity','Rolling 24 hour view',chart())}${card('Shift health','Live workload and entrance status',`<div class="health-list"><div><span class="health-icon">↗</span><span><b>Handoff coverage</b><small>${open.filter(e=>e.owner&&e.owner!=='Unassigned').length} of ${open.length} open items assigned</small></span><b>${open.length?Math.round(open.filter(e=>e.owner&&e.owner!=='Unassigned').length/open.length*100):100}%</b></div><div><span class="health-icon green">◉</span><span><b>Entrances online</b><small>North, main, and garage are active</small></span><b>3 / 4</b></div><div><span class="health-icon gold">◷</span><span><b>Shift handoff</b><small>${shiftOpen?'Next closeout at 6:00 PM':'Shift closed; open a new shift'}</small></span><b>${shiftOpen?'Open':'Closed'}</b></div></div><button class="panel-link" data-action="shift-summary">View shift closeout ↗</button>`)}</div>
+<div class="content-grid lower-grid">${card('Needs attention',`${open.length} open handoff items`,`${open.length?open.slice().sort((a,b)=>(urgency(a)==='high'?-1:1)).slice(0,4).map(e=>eventRow(e)).join(''):'<div class="empty-state">All caught up. New arrivals appear here.</div>'}`,`<button class="panel-link" data-view="handoffs">View queue ↗</button>`)}${card('Recent activity','Latest workshop arrivals',`${events.slice(0,5).map(e=>`<div class="activity-item"><span class="event-glyph tiny">${icon(e)}</span><span><b>${esc(e.title)}</b><small>${esc(e.entrance)} · ${ago(e.timestamp)}</small></span><i class="source-tag">${e.source==='ring'?'RING':'DEMO'}</i></div>`).join('')}`,`<button class="panel-link" data-view="activity">Full timeline ↗</button>`)}</div>`;}
+function renderQueue(){let filtered=events.filter(isOpen).filter(e=>queueFilter==='all'||(queueFilter==='unassigned'?(!e.owner||e.owner==='Unassigned'):urgency(e)===queueFilter)).filter(e=>!search||`${e.title} ${e.entrance} ${e.owner} ${e.notes}`.toLowerCase().includes(search.toLowerCase())).sort((a,b)=>sortBy==='oldest'?Date.parse(a.timestamp)-Date.parse(b.timestamp):Date.parse(b.timestamp)-Date.parse(a.timestamp));return `${heading('Handoff queue','Assign an owner, add context, and close the loop across shifts.',`${button('＋ New handoff','new-task')} ${button('Export CSV','export-queue','button-quiet')}`)}<div class="toolbar"><div class="segmented">${[['all','All items'],['high','Urgent'],['unassigned','Unassigned'],['medium','Follow up']].map(([v,l])=>`<button class="${queueFilter===v?'selected':''}" data-action="queue-filter" data-value="${v}">${l}<b>${v==='all'?events.filter(isOpen).length:v==='unassigned'?events.filter(e=>isOpen(e)&&(!e.owner||e.owner==='Unassigned')).length:events.filter(e=>isOpen(e)&&urgency(e)===v).length}</b></button>`).join('')}</div><input class="table-search" data-search placeholder="Search handoffs…" value="${esc(search)}" aria-label="Search handoffs"><select data-action="sort"><option value="newest" ${sortBy==='newest'?'selected':''}>Newest first</option><option value="oldest" ${sortBy==='oldest'?'selected':''}>Oldest first</option></select></div><div class="queue-list">${filtered.length?filtered.map(e=>eventRow(e)).join(''):'<div class="empty-state large-empty"><b>Nothing in this view</b><span>Try another filter or add a handoff item.</span></div>'}</div><div class="queue-foot">Showing ${filtered.length} of ${events.filter(isOpen).length} open handoffs · saved in this browser</div>`;}
+function renderTimeline(){let items=events.filter(e=>!search||`${e.title} ${e.entrance} ${e.owner}`.toLowerCase().includes(search.toLowerCase())).filter(e=>timelineRange==='all'||Date.now()-Date.parse(e.timestamp)<(timelineRange==='7d'?7*86400000:86400000));return `${heading('Event timeline','A searchable record of arrivals and handoffs across your workshop.',`${button('Export timeline','export-timeline','button-quiet')} ${button('＋ Simulate arrival','simulate')}`)}<div class="toolbar"><div class="segmented"><button class="${timelineRange==='24h'?'selected':''}" data-action="range" data-value="24h">24 hours</button><button class="${timelineRange==='7d'?'selected':''}" data-action="range" data-value="7d">7 days</button><button class="${timelineRange==='all'?'selected':''}" data-action="range" data-value="all">All activity</button></div><input class="table-search" data-search placeholder="Search timeline…" value="${esc(search)}" aria-label="Search timeline"><span class="muted-label">${items.length} EVENTS</span></div><div class="timeline">${items.length?items.map(e=>`<div class="timeline-row"><div class="timeline-time">${stamp(e.timestamp)}</div><div class="timeline-axis"><i></i></div><div class="timeline-entry"><div class="event-glyph tiny">${icon(e)}</div><div><b>${esc(e.title)}</b><small>${esc(e.entrance)} · ${esc(category(e))} · ${e.done?'Handled':'Open'}</small>${e.notes?`<p>${esc(e.notes)}</p>`:''}</div><span class="source-tag">${e.source==='ring'?'RING':'DEMO'}</span></div></div>`).join(''):'<div class="empty-state">No events match your search.</div>'}</div>`;}
+function renderDevices(){return `${heading('Entrances & devices','Monitor the points where people, deliveries, and vehicles arrive.',`${button(connected?'Disconnect Ring':'Connect Ring Playground','connect-ring',connected?'button-quiet':'button-primary')} ${button('＋ Add entrance','add-entrance','button-quiet')}`)}<div class="device-summary"><div><span class="eyebrow">WORKSPACE CONNECTION</span><h2>${connected?'Ring Playground connected':'Demo mode · simulated device health'}</h2><p>${connected?`${ringDevices.length} entrances loaded for this browser session.`:'Connect a temporary Playground token to read your Ring device list.'}</p></div><span class="connection-state ${connected?'live':''}"><i></i>${connected?'CONNECTED':'SIMULATED'}</span></div><div class="device-grid">${(connected?ringDevices.map(d=>({name:d.name,kind:d.kind||'Ring device',device:d.kind||'Ring device',state:'Online',battery:null,live:true})):entrances).map((d,i)=>`<article class="device-card"><div class="device-card-top"><span class="device-icon">◉</span><span class="device-state ${d.state==='Online'?'online':'attention'}"><i></i>${esc(d.state||'Online')}</span></div><span class="eyebrow">${esc(d.kind||'WORKSHOP ENTRANCE')}</span><h3>${esc(d.name)}</h3><p>${esc(d.device||'Ring device')}</p><div class="device-card-foot"><span>Battery <b>${d.battery==null?'—':`${d.battery}%`}</b></span><span>Last activity <b>${i===3?'2h ago':'just now'}</b></span></div><button data-action="device-details" data-name="${esc(d.name)}">View entrance details ↗</button></article>`).join('')}</div><div class="notice-box"><b>Demo data is simulated.</b><span>The 4 sample entrances and health indicators are examples. A real device feed appears only after connecting a temporary Ring Developer Playground token.</span></div>`;}
+function renderTeam(){const open=events.filter(isOpen);return `${heading('Team & shifts','See who is on the floor and pass open work to the next host.',`${button(shiftOpen?'Close current shift':'Start a shift',shiftOpen?'close-shift':'open-shift',shiftOpen?'button-quiet':'button-primary')} ${button('Copy shift summary','shift-summary','button-quiet')}`)}<div class="shift-banner"><div><span class="eyebrow">CURRENT SHIFT</span><h2>${shiftOpen?'Day shift · 8:00 AM – 6:00 PM':'No active shift'}</h2><p>${shiftOpen?'Started today at 8:02 AM by Mayank Kumar':'Start a shift to track handoff ownership.'}</p></div><span class="shift-clock">${shiftOpen?'09h 42m':'—'}</span></div><div class="team-grid">${people.map((p,i)=>{let assigned=open.filter(e=>e.owner?.startsWith(p.name.split(' ')[0])||(p.name.startsWith('Mayank')&&e.owner==='You')).length;return `<article class="team-card"><div class="team-person"><span class="person-avatar ${p.color}">${p.initials}</span><span><b>${p.name}</b><small>${p.role}</small></span><span class="presence ${i<3?'present':''}"></span></div><div class="team-stats"><span>Open items<strong>${assigned}</strong></span><span>Shift status<strong>${i<3&&shiftOpen?'On floor':'Off shift'}</strong></span></div><button data-action="assign-person" data-person="${esc(p.name.split(' ')[0]==='Mayank'?'You':p.name.split(' ')[0])}">Assign next item ↗</button></article>`}).join('')}</div>${card('Shift closeout','What the next host needs to know',`<div class="closeout-stats"><span><b>${open.length}</b> open items</span><span><b>${open.filter(e=>!e.owner||e.owner==='Unassigned').length}</b> unassigned</span><span><b>${events.filter(e=>e.done).length}</b> handled today</span></div><div class="closeout-note"><b>Carry-forward notes</b><p>${open.slice(0,3).map(e=>esc(`${e.title} (${e.entrance})`)).join(' · ')||'No open items to carry forward.'}</p></div>`)} `;}
+function renderRules(){return `${heading('Automation rules','Set simple routing rules that make the next action clear.',`${button('＋ Create rule','new-rule')}`)}<div class="automation-intro"><span class="automation-mark">⟲</span><div><b>${rules.filter(r=>r.on).length} rules active</b><p>Rules are simulated in this demo. They do not trigger Ring actions.</p></div></div><div class="rule-list">${rules.map(r=>`<article class="rule-card"><div class="rule-symbol">⟲</div><div class="rule-copy"><div class="rule-title"><h3>${esc(r.name)}</h3><span class="rule-state ${r.on?'enabled':''}">${r.on?'ACTIVE':'PAUSED'}</span></div><p>${esc(r.detail)}</p><div class="rule-flow"><span>${esc(r.when)}</span><b>→</b><span>${esc(r.then)}</span></div></div><button class="toggle ${r.on?'on':''}" data-action="toggle-rule" data-id="${esc(r.id)}" aria-label="Toggle ${esc(r.name)}"><i></i></button><button class="more-button" data-action="remove-rule" data-id="${esc(r.id)}" title="Remove rule">···</button></article>`).join('')}</div><div class="notice-box"><b>Built for safe handoffs.</b><span>Automation rules are stored locally with demo data. Connectors and event delivery are not configured until you provide a Ring Playground token.</span></div>`;}
+function renderAnalytics(){let open=events.filter(isOpen),done=events.filter(e=>e.done);let counts=['Delivery','Visitor','Vehicle','Arrival','Device alert'].map(cat=>[cat,events.filter(e=>category(e)===cat).length]);let total=Math.max(1,...counts.map(x=>x[1]));return `${heading('Workshop insights','A quick read on handoff load, arrival mix, and follow-up coverage.',`${button('Export report','export-timeline','button-quiet')} <select class="period-select"><option>Last 7 days</option><option>Last 30 days</option></select>`)}<div class="metric-grid">${metric('Total arrivals',events.length,'Across sample timeline','⌖')}${metric('Handoffs open',open.length,`${open.filter(e=>urgency(e)==='high').length} urgent`,'↗','down')}${metric('Handled',done.length,'Resolved or completed','✓')}${metric('Assignment rate',`${events.length?Math.round(events.filter(e=>e.owner&&e.owner!=='Unassigned').length/events.length*100):0}%`,'Events with an owner','♧')}</div><div class="content-grid analytics-grid">${card('Arrivals by time','Events in the last 24 hours',chart())}${card('Arrival mix','Grouped by event type',`<div class="mix-list">${counts.map(([label,n])=>`<div class="mix-row"><span>${label}</span><div><i style="width:${n/total*100}%"></i></div><b>${n}</b></div>`).join('')}</div>`)}</div><div class="content-grid">${card('Handoff performance','Current sample data',`<div class="health-list"><div><span class="health-icon">◷</span><span><b>Average time to claim</b><small>Based on assigned demo events</small></span><b>8 min</b></div><div><span class="health-icon green">✓</span><span><b>Resolved in current shift</b><small>Open and done items in this browser</small></span><b>${done.length}</b></div><div><span class="health-icon gold">↗</span><span><b>Needs an owner</b><small>Open items waiting to be assigned</small></span><b>${open.filter(e=>!e.owner||e.owner==='Unassigned').length}</b></div></div>`)}${card('Data note','What these numbers mean',`<div class="notice-box compact"><b>Sample workspace data</b><span>Analytics reflect the demo events on this device. Ring events appear only during an active connection and are not stored in the shared service.</span></div>`)}</div>`;}
+function renderSettings(){return `${heading('Workspace settings','Tune this browser’s demo workspace and data preferences.',`${button('Save settings','save-settings')}`)}<div class="settings-layout"><div>${card('Workspace profile','The name shown across your dashboard',`<label class="setting-field">Workspace name<input id="workspaceInput" value="${esc(workspace)}" maxlength="40"></label><label class="setting-field">Workspace type<select><option>Shared workshop</option><option>Maker space</option><option>Studio</option><option>Community space</option></select></label><div class="setting-row"><span><b>Workspace timezone</b><small>Used to display shift and event times</small></span><select><option>Local browser time</option></select></div>`)}${card('Preferences','Personal options for this device',`<div class="setting-row"><span><b>Quiet hours</b><small>Group low priority arrivals overnight</small></span><button class="toggle ${settings.quietHours?'on':''}" data-action="toggle-setting" data-key="quietHours"><i></i></button></div><div class="setting-row"><span><b>Auto-assign to floor lead</b><small>Suggested owner for new visitor handoffs</small></span><button class="toggle ${settings.autoAssign?'on':''}" data-action="toggle-setting" data-key="autoAssign"><i></i></button></div><div class="setting-row"><span><b>Compact queue rows</b><small>Show more handoffs on screen</small></span><button class="toggle ${settings.compact?'on':''}" data-action="toggle-setting" data-key="compact"><i></i></button></div>`)}</div><div>${card('Connections','External services for this demo',`<div class="connection-row"><span class="connection-icon">R</span><span><b>Ring Developer Playground</b><small>${connected?'Connected for this tab only':'Not connected'}</small></span><button data-action="connect-ring">${connected?'Disconnect':'Connect'}</button></div><div class="notice-box compact"><b>Token handling</b><span>Temporary Ring token remains in tab memory and is sent only with API requests. It is not saved in browser storage.</span></div>`)}${card('Demo data','Export or restore this browser’s sample workspace',`<button class="wide-action" data-action="export-timeline">Download all events as CSV <span>↓</span></button><button class="wide-action danger-action" data-action="reset-demo">Reset sample workspace <span>↻</span></button>`)}</div></div>`;}
+function render(){let open=events.filter(isOpen).length;$('#workspaceNameShort').textContent=workspace;$('#breadcrumbWorkspace').textContent=workspace;$('#breadcrumbView').textContent=labels[currentView];$('#navOpenCount').textContent=String(open).padStart(2,'0');$$('.nav-item[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===currentView));$('#pageHeading').innerHTML='';const root=$('#viewContent');root.innerHTML=({overview:renderOverview,handoffs:renderQueue,activity:renderTimeline,devices:renderDevices,team:renderTeam,automations:renderRules,analytics:renderAnalytics,settings:renderSettings}[currentView]||renderOverview)();if(settings.compact)root.classList.add('compact-queue');else root.classList.remove('compact-queue');}
+function show(view){if(!labels[view])return;currentView=view;search='';render();window.scrollTo({top:0,behavior:'smooth'});}
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);}
+function simulate(){const candidates=[{type:'package_detected',title:'New delivery at north loading door',subtype:'package',entrance:'North loading door',priority:'high',notes:'Simulated arrival. Add a recipient and hand it off.'},{type:'button_press',title:'Doorbell pressed at main entrance',subtype:'visitor',entrance:'Main entrance',priority:'medium',notes:'Simulated arrival. Welcome the visitor.'},{type:'motion',title:'Vehicle arrived at garage bay',subtype:'vehicle',entrance:'Garage bay',priority:'medium',notes:'Simulated arrival. Check the bay.'}];let item=candidates[Math.floor(Math.random()*candidates.length)];events.unshift({...item,id:`demo-${Date.now()}`,owner:settings.autoAssign?'Maya':'Unassigned',timestamp:new Date().toISOString(),source:'demo',done:false});persist();render();toast('Simulated arrival added to the handoff queue.');}
+function createTask(form){const d=new FormData(form);let cat=d.get('category');events.unshift({id:`task-${Date.now()}`,type:cat==='package'?'package_detected':cat==='visitor'?'button_press':cat==='vehicle'?'motion':cat==='maintenance'?'offline':'motion',title:d.get('title').trim(),subtype:cat==='maintenance'?'maintenance':cat,entrance:d.get('entrance')||'Workshop entrance',priority:d.get('priority'),owner:settings.autoAssign&&d.get('owner')==='Unassigned'?'Maya':d.get('owner'),notes:d.get('notes').trim(),timestamp:new Date().toISOString(),source:'demo',done:false});persist();$('#taskDialog').close();form.reset();show('handoffs');toast('Handoff added to the queue.');}
+function exportCSV(list,name){const headers=['Title','Category','Entrance','Priority','Owner','Status','Timestamp','Notes','Source'];const rows=list.map(e=>[e.title,category(e),e.entrance,urgency(e),e.owner,e.done?'Handled':e.snoozed?'Snoozed':'Open',e.timestamp,e.notes,e.source]);const csv=[headers,...rows].map(row=>row.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=name;document.body.append(a);a.click();a.remove();URL.revokeObjectURL(a.href);toast('CSV downloaded to your device.');}
+function shiftSummary(){const open=events.filter(isOpen);const text=`${workspace} — shift handoff\n${new Date().toLocaleString()}\n${open.length} open item(s)\n\n${open.length?open.map(e=>`• ${e.title} — ${e.entrance} | ${urgency(e)} | ${e.owner||'Unassigned'}${e.notes?`\n  ${e.notes}`:''}`).join('\n'):'No open handoffs.'}`;navigator.clipboard?.writeText(text).then(()=>toast('Shift summary copied.')).catch(()=>toast(text));if(!navigator.clipboard)toast(text);}
+function commandItems(q=''){let opts=[...Object.entries(labels).map(([id,name])=>({label:`Open ${name}`,sub:'Navigate to workspace',action:'nav',value:id})),{label:'Create a handoff',sub:'Add a new queue item',action:'new-task'},{label:'Simulate an arrival',sub:'Add sample event',action:'simulate'},{label:'Export activity CSV',sub:'Download event history',action:'export-timeline'},{label:'Copy shift summary',sub:'Share current handoff status',action:'shift-summary'}];if(q)opts=opts.filter(x=>`${x.label} ${x.sub}`.toLowerCase().includes(q.toLowerCase()));$('#commandList').innerHTML=opts.map(x=>`<button class="command-option" data-action="${x.action}" ${x.value?`data-view="${x.value}"`:''}><span class="command-option-icon">⌕</span><span><b>${esc(x.label)}</b><small>${esc(x.sub)}</small></span><kbd>↵</kbd></button>`).join('')||'<p class="empty-command">No matching actions.</p>';}
+async function connectRing(token){const clean=token.trim();let res=await fetch('/api/ring/connect',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${clean}`},body:JSON.stringify({token:clean})});let data=await res.json();if(!res.ok)throw new Error(data.error||'Could not connect. Check your temporary Playground token.');ringToken=clean;ringDevices=data.devices||[];connected=true;await refreshRingEvents();$('#ringDialog').close();$('#ringForm').reset();render();toast('Ring devices connected for this tab.');}
+async function refreshRingEvents(){if(!connected)return;try{let ids=ringDevices.map(d=>d.id).join(',');let res=await fetch(`/api/ring/events?devices=${encodeURIComponent(ids)}&since=${Date.now()-86400000}`,{headers:{authorization:`Bearer ${ringToken}`}}),data=await res.json();if(!res.ok)throw new Error(data.error||'Could not read events.');const ring=(data.events||[]).map(e=>({...e,source:'ring',owner:'Unassigned',priority:e.type?.includes('package')?'high':'medium',done:false,entrance:e.entrance||ringDevices.find(d=>d.id===e.deviceId)?.name||'Ring entrance'}));events=[...ring,...events.filter(e=>e.source!=='ring')].sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp));persist();}catch(e){toast(e.message);}}
+function disconnect(){ringToken='';connected=false;ringDevices=[];events=events.filter(e=>e.source!=='ring');persist();render();toast('Ring connection cleared from this tab.');}
+document.addEventListener('click',e=>{const nav=e.target.closest('[data-view]');if(nav){show(nav.dataset.view);$('#commandDialog').open&&$('#commandDialog').close();return;}const el=e.target.closest('[data-action]');if(!el)return;const {action,id}=el.dataset;let item=events.find(x=>x.id===id);switch(action){case'new-task':$('#taskDialog').showModal();break;case'simulate':simulate();break;case'assign':if(item){item.owner='You';persist();render();toast('Handoff assigned to you.');}break;case'resolve':if(item){item.done=true;item.snoozed=false;persist();render();toast('Handoff marked as handled.');}break;case'snooze':if(item){item.snoozed=true;setTimeout(()=>{item.snoozed=false;persist();render();},3600000);persist();render();toast('Snoozed for one hour.');}break;case'queue-filter':queueFilter=el.dataset.value;render();break;case'range':timelineRange=el.dataset.value;render();break;case'export-queue':exportCSV(events.filter(isOpen),'latchline-handoffs.csv');break;case'export-timeline':exportCSV(events,'latchline-events.csv');break;case'connect-ring':if(connected)disconnect();else $('#ringDialog').showModal();break;case'toggle-rule':{let r=rules.find(x=>x.id===id);if(r){r.on=!r.on;persist();render();}}break;case'remove-rule':rules=rules.filter(x=>x.id!==id);persist();render();toast('Automation rule removed.');break;case'toggle-setting':settings[el.dataset.key]=!settings[el.dataset.key];persist();render();break;case'save-settings':workspace=$('#workspaceInput')?.value.trim()||workspace;persist();render();toast('Workspace settings saved.');break;case'reset-demo':if(confirm('Reset the sample workspace and all browser-only changes?')){localStorage.removeItem(STORE);events=demoEvents;rules=defaultRules;workspace='Foundry Makers';settings={quietHours:true,autoAssign:false,compact:false};shiftOpen=true;show('overview');toast('Sample workspace restored.');}break;case'close-shift':shiftOpen=false;persist();render();toast('Shift closed. Copy the closeout summary for the next host.');break;case'open-shift':shiftOpen=true;persist();render();toast('A new day shift is open.');break;case'shift-summary':shiftSummary();break;case'command':commandItems();$('#commandDialog').showModal();$('#commandInput').focus();break;case'notifications':toast(`${events.filter(isOpen).length} open handoffs need review.`);break;case'workspace-menu':toast('Workspace settings are available in Settings.');break;case'add-entrance':toast('Connect the Ring Playground to load available entrances.');break;case'device-details':toast(`${el.dataset.name}: demo status shown; no live device connection.`);break;case'assign-person':{let t=events.find(isOpen);if(t){t.owner=el.dataset.person;persist();render();toast(`Next handoff assigned to ${el.dataset.person}.`);}else toast('No open handoff to assign.');break;}case'new-rule':{let name=prompt('Name this automation rule:');if(name?.trim()){rules.unshift({id:`r-${Date.now()}`,name:name.trim(),detail:'Custom local rule. Update the trigger and action as your workflow evolves.',when:'New arrival · configured trigger',then:'Route to assigned owner',on:true});persist();render();toast('Automation rule added.');}break;} }
 });
-$('#submitToken').addEventListener('click', async () => {
-  const button = $('#submitToken');
-  const error = $('#connectError');
-  error.textContent = '';
-  button.disabled = true;
-  button.textContent = 'Connecting…';
-  try { await connectRing($('#tokenInput').value.trim()); }
-  catch (err) { error.textContent = err.message; }
-  finally { button.disabled = false; button.textContent = 'Connect workspace'; }
-});
-
+document.addEventListener('submit',e=>{if(e.target.id==='taskForm'){e.preventDefault();createTask(e.target);}if(e.target.id==='ringForm'){e.preventDefault();const err=$('#ringError');err.textContent='';connectRing(new FormData(e.target).get('token')).catch(x=>err.textContent=x.message);}});
+document.addEventListener('input',e=>{if(e.target.id==='commandInput'){commandItems(e.target.value);return;}if(e.target.matches('[data-search]')){search=e.target.value;const pos=e.target.selectionStart;render();const field=$('[data-search]');field?.focus();field?.setSelectionRange(pos,pos);}});
+document.addEventListener('change',e=>{if(e.target.matches('[data-action="sort"]')){sortBy=e.target.value;render();}});
+document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();commandItems();$('#commandDialog').showModal();$('#commandInput').focus();}if(e.key==='Escape'&&$('#commandDialog').open)$('#commandDialog').close();});
+$$('.search-trigger').forEach(b=>b.addEventListener('click',()=>{commandItems();$('#commandDialog').showModal();$('#commandInput').focus();}));
+$('#commandDialog').addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.close();});
 render();
